@@ -1,0 +1,155 @@
+# Reference from github (reference for the coding):
+# https://github.com/hazemhosny/Yellow-Color-Tracking-Robot-Project/tree/master 
+
+import cv2
+import numpy as np
+import RPi.GPIO as GPIO
+from time import sleep
+
+
+# Set up GPIO using the BOARD mode
+GPIO.setmode(GPIO.BOARD)
+GPIO.setwarnings(False)
+
+
+# Define GPIO pins for motor control
+GPIO.setup(29, GPIO.OUT)  # ENA
+GPIO.setup(31, GPIO.OUT)  # IN1
+GPIO.setup(33, GPIO.OUT)  # IN2
+GPIO.setup(35, GPIO.OUT)  # IN3
+GPIO.setup(37, GPIO.OUT)  # IN4
+GPIO.setup(40, GPIO.OUT)  # ENB
+
+
+# Set initial states for ENA and ENB
+GPIO.output(29, GPIO.HIGH)
+GPIO.output(40, GPIO.HIGH)
+
+
+# Define motor control functions
+def motorforward():
+   GPIO.output(31, GPIO.HIGH)
+   GPIO.output(33, GPIO.LOW)
+   GPIO.output(35, GPIO.LOW)
+   GPIO.output(37, GPIO.HIGH)
+
+
+def motorbackward():
+   GPIO.output(31, GPIO.LOW)
+   GPIO.output(33, GPIO.HIGH)
+   GPIO.output(35, GPIO.HIGH)
+   GPIO.output(37, GPIO.LOW)
+
+
+def motorright():
+   GPIO.output(31, GPIO.HIGH)
+   GPIO.output(33, GPIO.LOW)
+   GPIO.output(35, GPIO.LOW)
+   GPIO.output(37, GPIO.LOW)
+
+
+def motorleft():
+   GPIO.output(31, GPIO.LOW)
+   GPIO.output(33, GPIO.LOW)
+   GPIO.output(35, GPIO.LOW)
+   GPIO.output(37, GPIO.HIGH)
+
+
+def motorstop():
+   GPIO.output(31, GPIO.LOW)
+   GPIO.output(33, GPIO.LOW)
+   GPIO.output(35, GPIO.LOW)
+   GPIO.output(37, GPIO.LOW)
+
+
+# Open a connection to the default camera (camera index 0)
+cap = cv2.VideoCapture(0)
+
+
+# Main loop for capturing and processing frames
+while True:
+   # Read a frame from the camera
+   _, frame = cap.read()
+
+
+   # Apply Gaussian Blur to the frame for noise filtering
+   blur_frame = cv2.GaussianBlur(frame, (5, 5), 0)
+
+
+   # Convert the frame from RGB to HSV color space
+   hsv = cv2.cvtColor(blur_frame, cv2.COLOR_BGR2HSV)
+
+
+   # Define upper and lower values for detecting red color in HSV
+   lower_red = np.array([170, 110, 150])
+   upper_red = np.array([180, 255, 255])
+
+
+   # Create a binary mask based on the red color range
+   mask = cv2.inRange(hsv, lower_red, upper_red)
+
+
+   # Apply Morphological Transformations to filter background noise
+   kernel = np.ones((5, 5), np.uint8)
+   opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+
+   # Find contours in the opening mask
+   _, contours, _ = cv2.findContours(opening.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+
+   # Check if contours are found
+   if len(contours) > 0:
+       # Find the contour with the maximum area
+       areas = [cv2.contourArea(c) for c in contours]
+       max_index = np.argmax(areas)
+       cnt = contours[max_index]
+
+
+       # Bounding rectangle around the max contour
+       x, y, w, h = cv2.boundingRect(cnt)
+       cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+       center = int(x + (w / 2))
+       area_mContour = w * h
+
+
+       # Motor control based on contour area and center position
+       if (area_mContour > 15000) and (area_mContour < 19000):
+           motorstop()
+           print('stop')
+           sleep(0.01)
+       elif area_mContour > 19000:
+           motorbackward()
+           print('backward')
+       else:
+           if center < 220:
+               motorleft()
+               print('left')
+           elif center > 440:
+               motorright()
+               print('right')
+           elif center > 220 and center < 440:
+               motorforward()
+               print('straight')
+           else:
+               motorstop()
+               print('stop')
+               sleep(0.01)
+   else:
+       motorstop()
+       print('stop, no contours found')
+
+
+   # Display the processed frame
+   cv2.imshow('frame', frame)
+
+
+   # Wait for a key press, and break the loop if 'Esc' key is pressed
+   k = cv2.waitKey(1) & 0xFF
+   if k == 27:
+       break
+
+
+# Close all windows and release the camera
+cv2.destroyAllWindows()
+cap.release()
